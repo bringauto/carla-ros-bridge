@@ -14,15 +14,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN mkdir -p /opt/carla-ros-bridge/src
 WORKDIR /opt/carla-ros-bridge
 
-COPY --from=carla /home/carla/PythonAPI /opt/carla/PythonAPI
+COPY --from=carla /workspace/PythonAPI /opt/carla/PythonAPI
 
 COPY requirements.txt /opt/carla-ros-bridge
 COPY install_dependencies.sh /opt/carla-ros-bridge
 RUN /bin/bash -c 'source /opt/ros/$ROS_DISTRO/setup.bash; \
     bash /opt/carla-ros-bridge/install_dependencies.sh; \
     if [ "$CARLA_VERSION" = "0.9.10" ] || [ "$CARLA_VERSION" = "0.9.10.1" ]; then wget https://carla-releases.s3.eu-west-3.amazonaws.com/Backup/carla-0.9.10-py2.7-linux-x86_64.egg -P /opt/carla/PythonAPI/carla/dist; fi; \
-    echo "export PYTHONPATH=\$PYTHONPATH:/opt/carla/PythonAPI/carla/dist/$(ls /opt/carla/PythonAPI/carla/dist | grep py$ROS_PYTHON_VERSION.)" >> /opt/carla/setup.bash; \
-    echo "export PYTHONPATH=\$PYTHONPATH:/opt/carla/PythonAPI/carla" >> /opt/carla/setup.bash'
+    PYTAG=cp$(python3 -c "import sys;print(f\"{sys.version_info.major}{sys.version_info.minor}\")"); \
+    WHEEL=$(ls /opt/carla/PythonAPI/carla/dist/carla-*-${PYTAG}-*.whl 2>/dev/null | head -n1); \
+    if [ -n "$WHEEL" ]; then \
+        echo "Installing CARLA Python API wheel: $WHEEL"; \
+        pip3 install --break-system-packages "$WHEEL"; \
+        echo "export PYTHONPATH=\$PYTHONPATH:/opt/carla/PythonAPI/carla" > /opt/carla/setup.bash; \
+    else \
+        echo "No cpXYZ wheel for $PYTAG; falling back to egg-on-PYTHONPATH"; \
+        echo "export PYTHONPATH=\$PYTHONPATH:/opt/carla/PythonAPI/carla/dist/$(ls /opt/carla/PythonAPI/carla/dist | grep py$ROS_PYTHON_VERSION.)" >> /opt/carla/setup.bash; \
+        echo "export PYTHONPATH=\$PYTHONPATH:/opt/carla/PythonAPI/carla" >> /opt/carla/setup.bash; \
+    fi'
 
 COPY . /opt/carla-ros-bridge/src/
 RUN /bin/bash -c 'source /opt/ros/$ROS_DISTRO/setup.bash; \

@@ -10,6 +10,8 @@
 Classes to handle Carla gnsss
 """
 
+import carla
+
 from carla_ros_bridge.sensor import Sensor
 
 from sensor_msgs.msg import NavSatFix
@@ -51,6 +53,12 @@ class Gnss(Sensor):
         self.gnss_publisher = node.new_publisher(NavSatFix,
                                                  self.get_topic_prefix(),
                                                  qos_profile=10)
+        # Latitude of the map's OpenDRIVE georeference origin (CARLA 0,0,0),
+        # i.e. lat_0. Cached here because get_map() parses the whole OpenDRIVE
+        # and is too heavy to call per measurement. Used by sensor_data_updated
+        # to mirror latitude around lat_0 (see the note there).
+        self._reference_latitude = carla_actor.get_world().get_map() \
+            .transform_to_geolocation(carla.Location(x=0.0, y=0.0, z=0.0)).latitude
         self.listen()
 
     def destroy(self):
@@ -67,7 +75,15 @@ class Gnss(Sensor):
         """
         navsatfix_msg = NavSatFix()
         navsatfix_msg.header = self.get_msg_header(timestamp=carla_gnss_measurement.timestamp)
-        navsatfix_msg.latitude = carla_gnss_measurement.latitude
+        # BringAuto sim fix (BAF-1639 / D-022): CARLA's OpenDRIVE georef maps
+        # +CARLA_Y -> +latitude (North=+Y), while carla_common.transforms uses
+        # North=-Y for everything else (odom/IMU/TF), leaving the GNSS-derived
+        # pose N/S-mirrored vs odom and corrupting the UKF. Mirror latitude so
+        # the GNSS ENU is right-handed (North=-CARLA_Y). Reflect around the map's
+        # georef origin (lat_0), NOT the equator: negating the raw value is only
+        # correct when lat_0 == 0; reflecting around lat_0 (2*lat_0 - lat) keeps
+        # maps with a non-zero georef origin consistent (no constant offset).
+        navsatfix_msg.latitude = 2.0 * self._reference_latitude - carla_gnss_measurement.latitude
         navsatfix_msg.longitude = carla_gnss_measurement.longitude
         navsatfix_msg.altitude = carla_gnss_measurement.altitude
         self.gnss_publisher.publish(navsatfix_msg)
