@@ -67,7 +67,12 @@ class Gnss(Sensor):
         """
         navsatfix_msg = NavSatFix()
         navsatfix_msg.header = self.get_msg_header(timestamp=carla_gnss_measurement.timestamp)
-        navsatfix_msg.latitude = carla_gnss_measurement.latitude
+        # BringAuto sim fix (BAF-1639 / D-022): CARLA's OpenDRIVE georef maps
+        # +CARLA_Y -> +latitude (North=+Y), while carla_common.transforms uses
+        # North=-Y for everything else (odom/IMU/TF). Negate latitude so the
+        # GNSS-derived ENU is right-handed and consistent (lat_0=0 -> clean
+        # equator reflection -> North=-CARLA_Y). Fixes the UKF N/S mirror.
+        navsatfix_msg.latitude = -carla_gnss_measurement.latitude
         navsatfix_msg.longitude = carla_gnss_measurement.longitude
         navsatfix_msg.altitude = carla_gnss_measurement.altitude
         self.gnss_publisher.publish(navsatfix_msg)
